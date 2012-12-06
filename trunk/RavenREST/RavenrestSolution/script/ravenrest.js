@@ -1,5 +1,9 @@
 ﻿/*
-
+ * A Javascript client for RavenDB HTTP API
+ * Version 1.0 Copyright (C) E. Fernando Ruiz, 2012
+ * Any contributions and feedback are greately appreciated.
+ * Distributed under the MIT License. More information on project website.
+ * Project website: http://code.google.com/p/ravenrest/
 */
 
 // AJAX Callback response object
