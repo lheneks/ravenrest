@@ -1,0 +1,125 @@
+﻿<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <title></title>
+    <script src="script/jquery-1.8.2.js" type="text/javascript"></script>
+    <script src="script/json2.js" type="text/javascript"></script>
+    <script src="script/ravenrest.js" type="text/javascript"></script>
+</head>
+<body>
+    <form action="Example.htm">
+    <h4>RavenREST example</h4>
+    <p>Fill in and click Insert to insert new document. Fill in one or more fields and click Select to perform additive search.</p>
+    <table><tr>
+        <td>
+    <fieldset>
+    Server URL<input type="text" id="server" value="http://localhost:8080"/><br />
+    Database Name<input type="text" id="dbname" value="Products"/><br />
+    <input type="button" id="btn_connect" value="Connect" />
+    </fieldset>
+    </td>
+    <td>
+    <fieldset>
+        Brand<input type="text" id="iBrand" /><br />
+        Model<input type="text" id="iModel" /><br />
+        Year<input type="text" id="iYear" /><br />
+        <input type="button" id="btn_insert" value="Insert" />
+        <input type="button" id="btn_select" value="Select" />
+    </fieldset>
+    </td>
+    </tr></table>
+    <div id="console">
+    </div>
+    </form>
+
+    <script type="text/javascript">
+
+        $(function () {
+
+            // connect Database Adapter
+            var database;
+
+            $("#btn_connect").click(function () {
+                database = DBAdapter($("#server").val(), $("#dbname").val());
+            });
+
+
+            // Insert document
+            $("#btn_insert").click(function () {
+
+                var doc = {
+                    Brand: $("#iBrand").val(),
+                    Model: $("#iModel").val(),
+                    Year: $("#iYear").val()
+                };
+
+                database.Insert(
+                        "Products",
+                        doc,
+                        function (response) {
+                            log("Inserted successfully: CODE=" + response.code + ", KEY=" + response.key);
+                        },
+                        function (response) {
+                            log("Error on insert: CODE=" + response.code + ", ERROR=" + response.msg);
+                        }
+                    );
+            });
+
+
+            // Select
+            $("#btn_select").click(function () {
+
+                var qBrand = $("#iBrand").val();
+                var qModel = $("#iModel").val();
+                var qYear = $("#iYear").val();
+
+                // create query
+                var q = Query(database)
+                        .From("Products");
+
+                var whereclause = false;
+
+                // append where, and, or, etc. conditions as needed
+                if (qBrand != "") {
+                    q = q.Where("Brand").Equals(qBrand);
+                    whereclause = true;
+                }
+
+                if (qModel != "") {
+                    if (!whereclause)
+                        q = q.Where("Model").Equals(qModel);
+                    else
+                        q = q.And("Model").Equals(qModel);
+                    whereclause = true;
+                }
+
+                if (qYear != "") {
+                    if (!whereclause)
+                        q = q.Where("Year").Equals(qYear);
+                    else
+                        q = q.And("Year").Equals(qYear);
+                    whereclause = true;
+                }
+
+                // append callback functions
+                q.Success(function (data) {
+                    log("<hr />Query Results:<br />" + JSON.stringify(data.Results))
+                })
+                  .Error(function (data) {
+                      log("<hr />Query Results:<br />" + JSON.stringify(data.Results))
+                  })
+
+                // finally, execute query
+                  .Select();
+
+            });
+
+        });
+
+        function log(msg) {
+            $("#console").append(msg + "<br />");
+        }
+
+    </script>
+</body>
+</html>
