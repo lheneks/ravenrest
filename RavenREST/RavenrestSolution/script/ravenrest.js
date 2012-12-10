@@ -24,41 +24,78 @@ function Response() {
 // Query Object
 function Query(database) {
 
-    var from, by, where, select, equals, is, success, error;
+    var from, by, where, select, equals, is, success, error, index, orderby;
     var conditions = [];
     var searchedfields = [];
+    var innerQuery;
+    var cached, cacheid, cachedResults, invalidatedCache;
 
     var db = database;
     var errormsg;
 
     var fn_from = function (query) {
+        if (!query)
+            return from;
+
         from = query;
+        invalidatedCache = true;
         return this;
+    }
+
+    var fn_orderby = function (query) {
+        orderby = query;
+        invalidatedCache = true;
+        return this;
+    }
+
+    var fn_orderbydesc = function (query) {
+        return fn_orderby("-" + query);
+    }
+
+    var fn_cached = function (value) {
+        if (value == undefined)
+            return cached;
+        else
+            cached = value;
+    }
+
+    var fn_cacheid = function (value) {
+        if (value == undefined) {
+            return cacheid;
+        }
+        else {
+            cacheid = value;
+            invalidatedCache = false;
+        }
     }
 
     var fn_equals = function (query) {
         if (where)
             conditions.push(where + ":\"" + query + "\" ");
 
-        where=undefined; //reset
+        where = undefined; //reset
+        invalidatedCache = true;
         return this;
     }
 
     var fn_notequals = function (query) {
         if (where)
-            conditions.push(" -"+where + ":\"" + query + "\" ");
+            conditions.push(" -" + where + ":\"" + query + "\" ");
 
         where = undefined; //reset
+        invalidatedCache = true;
         return this;
     }
 
     var fn_and = function (query) {
-        where = " AND "+query; 
+        where = " AND " + query;
+        invalidatedCache = true;
         return this;
     }
 
     var fn_or = function (query) {
-        where = " OR " + query; 
+        where = " OR " + query;
+        invalidatedCache = true;
         return this;
     }
 
@@ -67,6 +104,7 @@ function Query(database) {
             conditions.push(where + ": *" + query + " ");
 
         where = undefined; //reset
+        invalidatedCache = true;
         return this;
     }
 
@@ -75,6 +113,7 @@ function Query(database) {
             conditions.push(where + ":" + query + "* ");
 
         where = undefined; //reset
+        invalidatedCache = true;
         return this;
     }
 
@@ -83,6 +122,7 @@ function Query(database) {
             conditions.push(where + ": *" + query + "* ");
 
         where = undefined; //reset
+        invalidatedCache = true;
         return this;
     }
 
@@ -93,41 +133,64 @@ function Query(database) {
             searchedfields.sort();
         }
 
+        invalidatedCache = true;
         return this;
     }
 
     var fn_index = function (indexfield, indexvalue) {
+        if (!indexfield)
+            return index;
+
         is = indexvalue;
         by = indexfield;
+        invalidatedCache = true;
         return this;
     }
 
     var fn_error = function (callback) {
-        error = callback;
+        if (callback == undefined)
+            return error;
+        else
+            error = callback;
+        invalidatedCache = true;
         return this;
     }
 
     var fn_success = function (callback) {
-        success = callback;
+        if (callback == undefined)
+            return success;
+        else
+            success = callback;
+        invalidatedCache = true;
         return this;
     }
 
-    var fn_select = function () {
+    var fn_select = function (cache) {
+        cached = cache & !invalidatedCache;
         var index = getIndex();
-        var query = BuildLuceneQueryString();
-        db.Select(from, index, query, success, error);
+        if (!innerQuery || invalidatedCache)
+            innerQuery = BuildLuceneQueryString();
+        db.Select(this);
+        invalidatedCache = false;
         return this;
     }
 
-    var fn_fetch = function (field) {
+    var fn_fetch = function (field, cache) {
+        cached = cache;
         var index = getIndex();
-        db.Fetch(from, index, where, equals, query, success, error);
+        if (!innerQuery) {
+            innerQuery = BuildLuceneQueryString();
+            innerQuery += "&fetch=" + field;
+        }
+        db.Select(this);
         return this;
     }
 
     // Try to use pre-defined index; if not exists, use dynamic index instead
     function getIndex() {
-        var index;
+        if (index)
+            return index;
+
         if (from && by && searchedfields && conditions && is && success) {
             index = "ndx_for(" + by + "_is_" + is + ")_on_" + searchedfields.join();
         } else if (from && searchedfields && conditions && success) {
@@ -152,7 +215,13 @@ function Query(database) {
         for (c in conditions) {
             query += conditions[c];
         }
-        return encodeURIComponent(query);
+
+        query= encodeURIComponent(query);
+
+        if (orderby)
+            query += "&sort=" + orderby;
+
+        return query;
     }
 
     /*               
@@ -162,7 +231,8 @@ function Query(database) {
     .From("Products")
     .Index("Type","Chair")
     .Where("Model").Equals("Accord")
-    .Success().Error()
+    .OrderBy("PartNumber")
+    .Success(...).Error(...)
     .Select()
     */
 
@@ -170,6 +240,10 @@ function Query(database) {
 
         From: fn_from,
         Index: fn_index,
+
+        Cached: fn_cached,
+        CacheID: fn_cacheid,
+        InnerQuery: function () { return innerQuery; },
 
         And: fn_and,
         Or: fn_or,
@@ -183,6 +257,9 @@ function Query(database) {
 
         Select: fn_select,
         Fetch: fn_fetch,
+
+        OrderBy: fn_orderby,
+        OrderByDesc: fn_orderbydesc,
 
         Success: fn_success,
         Error: fn_error,
@@ -205,7 +282,8 @@ function Query(database) {
         var server = dburl;
         var defaultdatabase = databasename;
         var db;
-
+        var cache = [];
+        var indexes = [];
 
         var use = function (databasename) {
             if (databasename) {
@@ -224,7 +302,6 @@ function Query(database) {
         var insert = function (d, o, s, e) {
 
             var newid = GUID();
-
             use(d);
 
             // asynchronous request
@@ -258,9 +335,7 @@ function Query(database) {
       D: database name,  O: Document GUID as string, or multiple as string[], S= Success callback, E= Error callback
     */
         var get = function (d, o, s, e) {
-
             use(d);
-
             if ($.isArray(o)) {
 
                 $.ajax({
@@ -286,9 +361,7 @@ function Query(database) {
     O: Document GUID as string, S= Success callback, E= Error callback
     */
         var delete_ = function (d, o, s, e) {
-
             use(d);
-
             $.ajax({
                 type: "DELETE",
                 url: db + "/docs/" + o,
@@ -301,44 +374,37 @@ function Query(database) {
         return encodeURIComponent(whereKey + ":\"" + whereValue + "\"");
     }
 
-    /* Select indexed documents.
-    indexName= name of the index, whereKey=doc property for where clause, 
-    whereValue=doc property value
-    S= Success callback, E= Error callback
-    e.g. select("ndx_all_on_address","state","florida",,s,e)
-    => select * from ndx_all_on_address where state="florida"
-    */
-    var select = function (from, indexName, query, s, e) {
-        use(from);
-       $.ajax({
-            type: "GET",
-            url: db + "/indexes/" + indexName,
-            data: "query=" + query, // BuildLuceneQueryString(whereKey,whereValue),
-            error: e,
-            success: s
-        });
-    }
 
-    /* Select property values from selected document on index by query expression.
-       This is faster than select, because it operates on pre-built index instead of on documents.
-       FetchValue needs to an index Value.
-    indexName= name of the index, whereKey=doc property for where clause, 
-    whereValue=doc property value, fetchValue=property key to select
-    S= Success callback, E= Error callback
-    e.g. fetch("ndx_all_on_address","state","florida","street",s,e)
-    => select street from ndx_all_on_address where state="florida"
+    /* 
+        Select indexed documents.
     */
-    var fetch = function (from, indexName, whereKey, whereValue, fetchValue, s, e) {
-        use(from);
+    var select = function (query) {
+        use(query.From());
+
+        // try return cached version
+        if (query.Cached() && query.CacheID()) {
+           query.Success()(cache[query.CacheID()]);
+            return;
+        }
+
         $.ajax({
             type: "GET",
-            url: db + "/indexes/" + indexName,
-            data: "query=" + BuildLuceneQueryString(whereKey, whereValue),
-            error: e,
-            success: s
+            url: db + "/indexes/" + query.Index(),
+            data: "query=" + query.InnerQuery(),
+            error: query.Error,
+            success: function (data) {
+                // save results to cache
+                if (query.Cached()) {
+                    var cacheid = GUID();
+                    query.CacheID(cacheid);
+                    cache[cacheid]=data;
+                }
+                //execute callback
+                query.Success()(data);
+            }
         });
-
     }
+
 
     /* Index all documents in DB by a given key
     indexByKey= [] document KEY(s) by to use as index, S= Success callback, E= Error callback
@@ -425,8 +491,6 @@ function Query(database) {
         });
     }
 
-    var indexes = [];
-
     var updateIndexList = function () {
         $.ajax({
             type: "GET",
@@ -478,7 +542,6 @@ function Query(database) {
         Insert: insert,
         Get: get,
         Select: select,
-        Fetch: fetch,
         IndexWhere: indexwhere,
         Index: index,
         Indexes: indexes,

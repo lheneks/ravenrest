@@ -25,6 +25,7 @@
         Year<input type="text" id="iYear" /><br />
         <input type="button" id="btn_insert" value="Insert" />
         <input type="button" id="btn_select" value="Select" />
+        <input type="checkbox" id="cb_cached" />Cached
     </fieldset>
     </td>
     </tr></table>
@@ -38,6 +39,9 @@
 
             // connect Database Adapter
             var database;
+
+            // our test query
+            var q;
 
             $("#btn_connect").click(function () {
                 database = DBAdapter($("#server").val(), $("#dbname").val());
@@ -66,6 +70,7 @@
             });
 
 
+            var lastquery;
             // Select
             $("#btn_select").click(function () {
 
@@ -73,8 +78,21 @@
                 var qModel = $("#iModel").val();
                 var qYear = $("#iYear").val();
 
+                // check if user changed query
+                var useCache = false;
+                if (lastquery == qBrand + qModel + qYear)
+                    useCache = true;
+                lastquery = qBrand + qModel + qYear;
+
+                // try run cached first
+                var cacheQuery = $("#cb_cached").is(":checked");
+                if (q && useCache) {
+                    q.Select(cacheQuery);
+                    return;
+                }
+
                 // create query
-                var q = Query(database)
+                q = Query(database)
                         .From("Products");
 
                 var whereclause = false;
@@ -109,8 +127,11 @@
                       log("<hr />Query Results:<br />" + JSON.stringify(data.Results))
                   })
 
+                 // order results
+                 .OrderByDesc("Year")
+
                 // finally, execute query
-                  .Select();
+                 .Select(cacheQuery);
 
             });
 
